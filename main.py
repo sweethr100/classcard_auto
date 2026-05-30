@@ -3,6 +3,8 @@ import warnings
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 from handler.recall_learning import RecallLearning
 from handler.spelling_learning import SpellingLearning
 from selenium.webdriver.chrome.options import Options
@@ -35,23 +37,19 @@ driver = webdriver.Chrome(options=chrome_options)
 
 # 로그인 시행
 driver.get("https://www.classcard.net/Login")
-id_element = driver.find_element(By.ID, "login_id")
-pw_element = driver.find_element(By.ID, "login_pwd")
+wait = WebDriverWait(driver, 10)
+id_element = wait.until(EC.visibility_of_element_located((By.NAME, "login_id")))
+pw_element = wait.until(EC.visibility_of_element_located((By.NAME, "login_pwd")))
 id_element.clear() # Autofill 억제
 id_element.send_keys(account["id"])
 pw_element.send_keys(account["pw"])
-time.sleep(1)
-driver.find_element(
-    By.XPATH,
-    "/html/body/div[1]/div/div/div/div/form/div[3]/a",
-).click()  # 로그인 버튼
-time.sleep(1)  # 로딩 대기
+wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn-login"))).click()
+wait.until(EC.url_changes("https://www.classcard.net/Login"))
 
 # 클래스 선택
 class_dict = {}
-class_list_element = driver.find_element(
-    By.CSS_SELECTOR,
-    "body > div.mw-1080 > div:nth-child(6) > div > div > div.left-menu > div.left-item-group.p-t-none.p-r-lg > div.m-t-sm.left-class-list",
+class_list_element = wait.until(
+    EC.visibility_of_element_located((By.CSS_SELECTOR, ".left-class-list"))
 )
 class_count = len(class_list_element.find_elements(By.TAG_NAME, "a"))
 for class_item, i in zip(
