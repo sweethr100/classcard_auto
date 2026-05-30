@@ -1,5 +1,7 @@
 import json
 import os
+import re
+from bs4 import BeautifulSoup
 
 import requests
 from selenium import webdriver
@@ -17,23 +19,33 @@ def word_get(driver: webdriver.Chrome, num_d: int) -> list:
             f"//*[@id='tab_set_all']/div[2]/div[{i}]/div[4]/div[1]/div[1]/div/div",
         ).text  # 영어단어
 
-    driver.find_element(
+    flip_button = driver.find_element(
         By.CSS_SELECTOR,
         "#tab_set_all > div.card-list-title > div > div:nth-child(1) > a",
-    ).click()  # 한글단어로 변경
+    )
+    driver.execute_script("arguments[0].click();", flip_button)  # 한글단어로 변경
 
     for i in range(1, num_d):
         ko_d = driver.find_element(
             By.XPATH,
             f"//*[@id='tab_set_all']/div[2]/div[{i}]/div[4]/div[2]/div[1]/div/div",
-        ).text  # 한글단어
-        ko_d = ko_d.split("\n")  # 한글단어를 뜻과 예문으로 나눔
-
-        da_k[i] = f"{ko_d[0]}"  # 뜻만 저장
-        if len(ko_d) != 1:  # 예문이 있으면
-            da_kyn[i] = f"{ko_d[0]} {ko_d[1]}"  # 뜻과 예문 저장
-        else:
-            da_kyn[i] = f"{ko_d[0]}"  # 뜻만 저장
+        ).text  # 한글단어 전체
+        
+        # 줄바꿈으로 쪼갠 뒤 영어 예문이 시작되기 전까지의 라인들(뜻)만 수집
+        lines = ko_d.split("\n")
+        meanings = []
+        for line in lines:
+            line_strip = line.strip()
+            if not line_strip:
+                continue
+            # 알파벳 문자 비율이 40% 이상인 경우 영어 예문 시작으로 판단하고 중단
+            alpha_chars = len(re.findall(r'[a-zA-Z]', line_strip))
+            if len(line_strip) > 0 and (alpha_chars / len(line_strip)) > 0.4:
+                break
+            meanings.append(line_strip)
+        
+        da_k[i] = " ".join(meanings)
+        da_kyn[i] = da_k[i]
 
     return [da_e, da_k, da_kyn]  # 영어단어, 한글단어, 뜻과 예문
 
@@ -172,3 +184,48 @@ def get_account() -> dict:
             return json_data
     except Exception:
         return save_id()
+
+
+def parse_set_url(url: str) -> tuple:
+    match = re.search(r"/set/(\d+)(?:/(\d+))?", url)
+    if match:
+        set_id = match.group(1)
+        class_id = match.group(2) if match.group(2) else "0"
+        return set_id, class_id
+    return None, None
+
+
+def get_sets_from_current_page(driver: webdriver.Chrome) -> dict:
+    html = BeautifulSoup(driver.page_source, "html.parser")
+    set_anchors = html.find_all("a", href=True)
+    sets_dict = {}
+    idx = 0
+    seen_set_ids = set()
+    for a in set_anchors:
+        href = a["href"]
+        if "/set/" in href:
+            parts = href.split("/set/")[-1].split("/")
+            set_id = parts[0]
+            if not set_id.isdigit():
+                continue
+            if set_id in seen_set_ids:
+                continue
+            
+            title = a.text.strip()
+            if not title:
+                title = a.get_text().strip()
+            if not title:
+                title = f"세트 {set_id}"
+            
+            title = " ".join(title.split())
+            class_id = parts[1] if len(parts) > 1 and parts[1].isdigit() else "0"
+            
+            sets_dict[idx] = {
+                "title": title,
+                "card_num": "개인 학습용 세트",
+                "set_id": set_id,
+                "class_id": class_id
+            }
+            seen_set_ids.add(set_id)
+            idx += 1
+    return sets_dict
